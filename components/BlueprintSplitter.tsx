@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Crop, Check, X, ArrowLeftRight, Scissors } from 'lucide-react';
+import { Crop, Check, X, ArrowLeftRight, Scissors, Wand2 } from 'lucide-react';
+import { findBlueprintRegions } from '../utils/cvService';
 
 interface Props {
   imageSrc: string;
@@ -17,6 +18,7 @@ interface CropRegion {
 
 export const BlueprintSplitter: React.FC<Props> = ({ imageSrc, onComplete, onCancel }) => {
   const [crops, setCrops] = useState<CropRegion[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [currentDrag, setCurrentDrag] = useState<{ startX: number; startY: number } | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -52,6 +54,52 @@ export const BlueprintSplitter: React.FC<Props> = ({ imageSrc, onComplete, onCan
     
     return [r1, r2];
   };
+
+  const runAutoDetect = async () => {
+    if (!imageSrc) return;
+    setIsProcessing(true);
+    try {
+      const regions = await findBlueprintRegions(imageSrc);
+
+      // Regions are in original image coordinates.
+      // We need to map them to the displayed size.
+      const img = imgRef.current;
+      const rect = containerRef.current?.getBoundingClientRect();
+
+      if (img && rect && regions.length >= 2) {
+        const scaleX = rect.width / img.naturalWidth;
+        const scaleY = rect.height / img.naturalHeight;
+
+        // Take the top 2 regions
+        const top2 = regions.slice(0, 2).map(r => ({
+          x: r.x * scaleX,
+          y: r.y * scaleY,
+          width: r.width * scaleX,
+          height: r.height * scaleY
+        }));
+
+        // Auto classify
+        const classified = autoClassify(top2);
+        setCrops(classified);
+      }
+    } catch (e) {
+      console.error("Auto detect failed", e);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Run auto-detect on mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+       if (imgRef.current && imgRef.current.complete) {
+         runAutoDetect();
+       } else if (imgRef.current) {
+         imgRef.current.onload = runAutoDetect;
+       }
+    }, 500); // Small delay to ensure render
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (crops.length >= 2) return;
@@ -152,9 +200,13 @@ export const BlueprintSplitter: React.FC<Props> = ({ imageSrc, onComplete, onCan
               Blueprint Separation Tool
             </h2>
             <p className="text-sm text-slate-400">
-              {crops.length === 0 && "Step 1: Draw a box around the first view (e.g. Top View)."}
-              {crops.length === 1 && "Step 2: Draw a box around the second view (e.g. Side View)."}
-              {crops.length === 2 && "Step 3: Verify labels and confirm."}
+              {isProcessing ? "Auto-detecting regions..." : (
+                <>
+                  {crops.length === 0 && "Step 1: Draw a box around the first view (e.g. Top View)."}
+                  {crops.length === 1 && "Step 2: Draw a box around the second view (e.g. Side View)."}
+                  {crops.length === 2 && "Step 3: Verify labels and confirm."}
+                </>
+              )}
             </p>
           </div>
           <button onClick={onCancel} className="p-2 hover:bg-slate-800 rounded">
@@ -211,12 +263,22 @@ export const BlueprintSplitter: React.FC<Props> = ({ imageSrc, onComplete, onCan
         </div>
 
         <div className="mt-6 flex justify-between items-center">
-          <button 
-            onClick={() => setCrops([])} 
-            className="text-slate-400 hover:text-white text-sm underline"
-          >
-            Reset Selection
-          </button>
+          <div className="flex gap-4">
+            <button
+              onClick={() => setCrops([])}
+              className="text-slate-400 hover:text-white text-sm underline"
+            >
+              Reset Selection
+            </button>
+            <button
+              onClick={runAutoDetect}
+              disabled={isProcessing}
+              className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 text-sm font-mono border border-cyan-900/50 bg-cyan-900/10 px-3 py-1 rounded"
+            >
+              <Wand2 size={14} />
+              AUTO-DETECT
+            </button>
+          </div>
 
           <div className="flex gap-4">
             {crops.length === 2 && (

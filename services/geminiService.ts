@@ -1,8 +1,11 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ShipParameters, AnalysisData } from "../types";
+import { detectTurrets } from "../utils/cvService";
 
 // Initialize Gemini Client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// In Vite, process.env.API_KEY is replaced at build time if defined in vite.config.ts
+const apiKey = process.env.API_KEY || '';
+const ai = new GoogleGenAI({ apiKey });
 
 /**
  * Generates a sample vector blueprint.
@@ -48,75 +51,80 @@ const cleanJsonString = (str: string): string => {
  */
 export const analyzeBlueprint = async (base64Image: string): Promise<AnalysisData> => {
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: "image/png", 
-              data: base64Image
-            }
-          },
-          {
-            text: `Analyze this naval blueprint. 
-            1. Identify the specific ship class (e.g., Yamato, Iowa, Bismarck) if possible.
-            2. If a class is identified, use Google Search to find its standard physical dimensions (Length, Beam, Draft).
-            3. Estimate the armament and design era.
-            4. CRITICAL: Analyze the visual layout for 3D reconstruction.
-               - Locate the centerpoints of main battery turrets along the length (0.0 = Stern/Left, 1.0 = Bow/Right).
-               - Locate the start and end points of the main superstructure block (0.0 to 1.0).
-            
-            Return the data in JSON format.`
-          }
-        ]
-      },
-      config: {
-        tools: [{googleSearch: {}}],
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            shipClass: { type: Type.STRING },
-            estimatedLength: { type: Type.STRING },
-            armament: { type: Type.ARRAY, items: { type: Type.STRING } },
-            designYear: { type: Type.STRING },
-            description: { type: Type.STRING },
-            realDimensions: {
-              type: Type.OBJECT,
-              properties: {
-                length: { type: Type.NUMBER, description: "Length in meters" },
-                beam: { type: Type.NUMBER, description: "Beam/Width in meters" },
-                draft: { type: Type.NUMBER, description: "Draft in meters" }
+    // 1. Run Parallel Operations: AI Metadata Analysis + CV Geometry Extraction
+    const [aiResponse, cvTurrets] = await Promise.all([
+      ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: "image/png",
+                data: base64Image
               }
             },
-            geometry: {
-              type: Type.OBJECT,
-              description: "Normalized coordinates for 3D reconstruction (0.0 to 1.0)",
-              properties: {
-                turrets: { 
-                  type: Type.ARRAY, 
-                  items: { type: Type.NUMBER },
-                  description: "List of normalized X-positions (0-1) for main turrets"
-                },
-                superstructure: {
-                  type: Type.OBJECT,
-                  properties: {
-                    start: { type: Type.NUMBER },
-                    end: { type: Type.NUMBER }
+            {
+              text: `Analyze this naval blueprint.
+              1. Identify the specific ship class (e.g., Yamato, Iowa, Bismarck) if possible.
+              2. If a class is identified, use Google Search to find its standard physical dimensions (Length, Beam, Draft).
+              3. Estimate the armament and design era.
+              4. Locate the start and end points of the main superstructure block (0.0 to 1.0).
+
+              Return the data in JSON format.`
+            }
+          ]
+        },
+        config: {
+          tools: [{googleSearch: {}}],
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              shipClass: { type: Type.STRING },
+              estimatedLength: { type: Type.STRING },
+              armament: { type: Type.ARRAY, items: { type: Type.STRING } },
+              designYear: { type: Type.STRING },
+              description: { type: Type.STRING },
+              realDimensions: {
+                type: Type.OBJECT,
+                properties: {
+                  length: { type: Type.NUMBER, description: "Length in meters" },
+                  beam: { type: Type.NUMBER, description: "Beam/Width in meters" },
+                  draft: { type: Type.NUMBER, description: "Draft in meters" }
+                }
+              },
+              geometry: {
+                type: Type.OBJECT,
+                description: "Normalized coordinates for 3D reconstruction (0.0 to 1.0)",
+                properties: {
+                  superstructure: {
+                    type: Type.OBJECT,
+                    properties: {
+                      start: { type: Type.NUMBER },
+                      end: { type: Type.NUMBER }
+                    }
                   }
                 }
               }
             }
           }
         }
-      }
-    });
+      }),
+      detectTurrets(base64Image) // Run CV locally
+    ]);
 
-    if (response.text) {
-      // Clean up potential markdown formatting before parsing
-      const cleanJson = cleanJsonString(response.text);
-      return JSON.parse(cleanJson) as AnalysisData;
+    if (aiResponse.text) {
+      const cleanJson = cleanJsonString(aiResponse.text);
+      const data = JSON.parse(cleanJson) as AnalysisData;
+
+      // Merge CV Data into the AI Response
+      if (!data.geometry) data.geometry = {};
+
+      // Prioritize CV detected turrets over any AI hallucination (if we asked for it)
+      // Since we removed turrets from the prompt, we just inject them here.
+      data.geometry.turrets = cvTurrets;
+
+      return data;
     }
     throw new Error("No analysis data returned");
   } catch (error) {
