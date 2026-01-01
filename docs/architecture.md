@@ -1,11 +1,13 @@
 ---
-title: NavalForge 3D — System Architecture
+title: NavalForge 3D — System Architecture Specification
 date: 2026-01-01
 author: Claude (Opus 4.5)
-status: Living Document
+status: Specification (Not Implemented)
 ---
 
-# System Architecture
+# System Architecture Specification
+
+> **Note:** This document describes the *target* architecture. It is a specification to build toward, not a description of existing code.
 
 ## Overview
 
@@ -16,305 +18,270 @@ NavalForge 3D is a **hybrid deterministic-AI pipeline** that transforms 2D naval
 │                           NAVALFORGE 3D PIPELINE                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐   │
-│  │ PHASE 1 │───▶│ PHASE 2 │───▶│ PHASE 3 │───▶│ PHASE 4 │───▶│ PHASE 5 │   │
-│  │Ingestion│    │Grounding│    │Extract  │    │ Lofting │    │ Refine  │   │
-│  └─────────┘    └─────────┘    └─────────┘    └─────────┘    └─────────┘   │
-│       │              │              │              │              │         │
-│       ▼              ▼              ▼              ▼              ▼         │
-│   [Images]      [Metadata]     [Curves]        [Mesh]        [Output]      │
-│   base64        ShipClass      Float[]          OBJ          Refined       │
-│   top/side      Dimensions     profiles        geometry       3D viz       │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐         │
+│  │     PHASE 1     │───▶│     PHASE 2     │───▶│     PHASE 3     │         │
+│  │    Ingestion    │    │    Grounding    │    │   Extraction    │         │
+│  │  (Deterministic)│    │  (AI-Assisted)  │    │ (Deterministic) │         │
+│  └─────────────────┘    └─────────────────┘    └─────────────────┘         │
+│          │                      │                      │                    │
+│          ▼                      ▼                      ▼                    │
+│     [Base64 imgs]          [Metadata]            [Profiles]                 │
 │                                                                             │
-│  ════════════════════════════════════════════════════════════════════════  │
-│  │← DETERMINISTIC ──────────────────────────▶│←── AI-ASSISTED ─────────▶│  │
+│  ┌─────────────────┐    ┌─────────────────┐                                │
+│  │     PHASE 4     │───▶│     PHASE 5     │                                │
+│  │     Lofting     │    │   Refinement    │                                │
+│  │ (Deterministic) │    │  (AI-Assisted)  │                                │
+│  └─────────────────┘    └─────────────────┘                                │
+│          │                      │                                           │
+│          ▼                      ▼                                           │
+│       [OBJ Mesh]          [Final Output]                                    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Phase Breakdown
+## Core Architecture Principle
+
+**Deterministic First, AI Second**
+
+The system alternates between deterministic (reproducible, testable) and AI-assisted (flexible, intelligent) phases:
+
+| Phase | Type | Why |
+|-------|------|-----|
+| 1. Ingestion | Deterministic | Image cropping is pure coordinate math |
+| 2. Grounding | AI-Assisted | Ship identification requires visual understanding |
+| 3. Extraction | Deterministic | Pixel scanning is pure computation |
+| 4. Lofting | Deterministic | Mesh generation is geometry math |
+| 5. Refinement | AI-Assisted | Filling in unknowns requires inference |
+
+This separation means:
+- **Bugs in deterministic phases** can be traced and fixed with unit tests
+- **AI phases** are constrained by deterministic outputs (less hallucination surface)
+- **Each phase** can be developed and tested independently
+
+---
+
+## Phase Specifications
 
 ### Phase 1: Ingestion & Normalization
 
-**Type:** Deterministic (Human-Assisted)
-**Component:** `BlueprintSplitter.tsx`
-**Purpose:** Separate and classify blueprint views
+**Purpose:** Accept blueprint images, separate into orthographic views (top, side)
 
-| Input | Output |
-|-------|--------|
-| Single combined blueprint image | Two base64 images: `topView`, `sideView` |
+**Input:**
+- One combined image (containing both views), OR
+- Two separate images (top view, side view)
 
-**Process:**
-1. User uploads combined or individual blueprint images
-2. Interactive canvas allows rectangular region selection
-3. Aspect ratio heuristics auto-classify "Top" vs "Side"
-4. User can swap labels if misclassified
-5. Regions extracted at native resolution
+**Output:**
+```typescript
+interface IngestionOutput {
+  topView: string;      // Base64 PNG, cropped to content bounds
+  sideView: string;     // Base64 PNG, cropped to content bounds
+  sourceMetadata: {
+    originalDimensions: { width: number; height: number };
+    cropRegions: CropRegion[];
+  };
+}
+```
 
-**Key Decisions:**
-- Human-in-the-loop for view separation (eliminates ambiguity)
-- Coordinate math preserves precision across display/native scaling
+**Key Challenges:**
+1. How to reliably distinguish top view from side view?
+2. How to handle arbitrary image orientations?
+3. How to crop tightly without losing content?
+
+**See:** [Phase 1 Specification](./pipeline/phase_1_ingestion.md)
 
 ---
 
 ### Phase 2: Semantic Grounding
 
-**Type:** AI-Assisted (Probabilistic)
-**Component:** `geminiService.ts` → `analyzeBlueprint()`
-**Purpose:** Identify ship class and retrieve real-world data
+**Purpose:** Identify ship class, retrieve real-world dimensions
 
-| Input | Output |
-|-------|--------|
-| Blueprint image (base64) | `AnalysisData` JSON |
+**Input:**
+- Blueprint image(s) from Phase 1
 
-**Process:**
-1. Image sent to Gemini 2.5 Flash with structured schema
-2. AI identifies ship class (e.g., "Yamato", "Iowa", "Bismarck")
-3. Google Search grounding retrieves real dimensions (length, beam, draft)
-4. Geometric hints extracted (turret positions, superstructure bounds)
-5. Structured JSON returned with metadata
-
-**Output Schema:**
+**Output:**
 ```typescript
-AnalysisData {
-  shipClass: string
-  estimatedLength: string
-  armament: string[]
-  designYear: string
-  description: string
-  realDimensions?: { length, beam, draft }  // From grounding
-  geometry?: {
-    turrets: number[]        // Normalized 0-1 positions
-    superstructure: { start, end }
-  }
+interface GroundingOutput {
+  shipClass: string;           // e.g., "Yamato-class battleship"
+  confidence: number;          // 0-1
+  dimensions: {
+    length: number;            // meters
+    beam: number;              // meters
+    draft: number;             // meters
+    source: 'grounded' | 'estimated';
+  };
+  geometryHints: {
+    turretPositions: number[]; // normalized 0-1 along length
+    superstructureBounds: { start: number; end: number };
+  };
 }
 ```
 
-**Key Decisions:**
-- Use Google Search for authoritative ship specifications
-- Structured output prevents hallucinated formats
-- Geometry hints are normalized (0-1) for resolution independence
+**Key Challenges:**
+1. What if the ship class is unknown or fictional?
+2. How to validate grounded dimensions are accurate?
+3. How to handle ambiguous or partial blueprints?
+
+**See:** [Phase 2 Specification](./pipeline/phase_2_grounding.md)
 
 ---
 
 ### Phase 3: Computational Extraction
 
-**Type:** Deterministic
-**Component:** `VisionKernel.ts` → `traceSilhouette()`
-**Purpose:** Extract profile curves from blueprint images
+**Purpose:** Extract silhouette profiles from blueprint images
 
-| Input | Output |
-|-------|--------|
-| Blueprint image (ImageData) | Normalized float arrays (0.0-1.0) |
-
-**Process:**
-1. Scan image column-by-column (Z-axis = ship length)
-2. For each column, find min/max opaque pixels (Y-axis)
-3. Calculate distance from background color (Euclidean)
-4. Normalize peaks to 1.0
-5. Apply moving-average smoothing to eliminate noise
-
-**Algorithm:**
-```
-for each column z in [0, width]:
-    for each pixel y in [0, height]:
-        if euclidean_distance(pixel, background) > threshold:
-            record y as opaque
-    profile[z] = (max_y - min_y) / height  // Normalized
-```
+**Input:**
+- Top view image (base64)
+- Side view image (base64)
+- Optional: extraction parameters (threshold, smoothing)
 
 **Output:**
-- `topProfile: Float32Array` — Beam distribution along length
-- `sideProfile: Float32Array` — Draft distribution along length
+```typescript
+interface ExtractionOutput {
+  topProfile: Float32Array;    // Beam distribution along length (0-1)
+  sideProfile: Float32Array;   // Draft distribution along length (0-1)
+  resolution: number;          // Samples per unit length
+  debug: {
+    backgroundColorDetected: [number, number, number];
+    pixelsCounted: number;
+    profilePeaks: { index: number; value: number }[];
+  };
+}
+```
 
-**Key Decisions:**
-- Pure pixel math (no AI) for reproducibility
-- Smoothing factor configurable per-image
-- Threshold adjustable for different blueprint styles
+**Key Challenges:**
+1. How to handle varying blueprint styles (clean vector vs. scanned)?
+2. How to separate ship from annotations/text/scale bars?
+3. How to handle non-white backgrounds?
+
+**See:** [Phase 3 Specification](./pipeline/phase_3_extraction.md)
 
 ---
 
 ### Phase 4: Elastic Lofting
 
-**Type:** Deterministic
-**Component:** `meshGenerator.ts` → `generateShipObj()`
 **Purpose:** Generate 3D mesh from profile curves
 
-| Input | Output |
-|-------|--------|
-| Profile curves + AnalysisData + ShipParameters | Wavefront OBJ file |
+**Input:**
+- Profile curves from Phase 3
+- Dimensions from Phase 2
+- User parameters (optional overrides)
 
-**Process:**
-1. Create hull cross-sections by combining top/side profiles
-2. Interpolate cross-sections along ship length (bow → stern)
-3. Generate superstructure box from geometry hints
-4. Place turrets procedurally at detected positions
-5. Apply user parameter overrides (extrusion %, scales)
-6. Export as OBJ with proper vertex/face topology
-
-**Hull Lofting Algorithm:**
-```
-for each z in [0, ship_length]:
-    beam = topProfile[z] * maxBeam
-    draft = sideProfile[z] * maxDraft
-
-    for each angle in [0, 2π]:
-        x = beam * cos(angle)
-        y = draft * sin(angle)  // Elliptical cross-section
-        vertices.push(x, y, z)
+**Output:**
+```typescript
+interface LoftingOutput {
+  objContent: string;          // Valid Wavefront OBJ file
+  stats: {
+    vertexCount: number;
+    faceCount: number;
+    groups: string[];          // ['hull', 'superstructure', 'turrets']
+    boundingBox: { min: Vector3; max: Vector3 };
+  };
+}
 ```
 
-**Key Decisions:**
-- Elliptical cross-section as default hull shape
-- 24 length segments, 8 radial resolution (configurable)
-- Separate geometry groups for hull/superstructure/turrets
+**Key Challenges:**
+1. What cross-section shape to use? (Ellipse is a guess)
+2. How to handle bow/stern tapering realistically?
+3. How to place components (turrets, superstructure) correctly?
+
+**See:** [Phase 4 Specification](./pipeline/phase_4_lofting.md)
 
 ---
 
 ### Phase 5: AI Refinement
 
-**Type:** AI-Assisted (Probabilistic)
-**Component:** `geminiService.ts` → `generate3DView()` + Future refinement
-**Purpose:** Enhance and refine the 3D output
+**Purpose:** Enhance output using AI spatial reasoning
 
-| Input | Output |
-|-------|--------|
-| Base mesh + Original blueprints | Refined 3D visualization |
+**Input:**
+- Base mesh from Phase 4
+- Original blueprints from Phase 1
+- Ship class from Phase 2
 
-**Current Implementation:**
-- Gemini 3 Pro Image (Nano Banana Pro) generates photorealistic visualization
-- Uses original blueprints + ship class as context
+**Output:**
+```typescript
+// Option A: Visual refinement
+interface VisualOutput {
+  renderedViews: Map<ViewAngle, string>;  // Base64 images
+}
 
-**Planned Enhancement (Hybrid Refinement):**
+// Option B: Geometric correction (future)
+interface GeometricOutput {
+  corrections: MeshCorrection[];
+  correctedObj: string;
+}
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  REFINEMENT OPTIONS                                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Option A: 2D Correction (Near-term)                        │
-│  ───────────────────────────────────────                    │
-│  1. Render base OBJ from multiple angles                    │
-│  2. Send renders + blueprints to Nano Banana Pro            │
-│  3. AI refines visual (adds detail, fixes proportions)      │
-│  4. Output: Enhanced 2D renders                             │
-│                                                             │
-│  Option B: 3D Correction (Future)                           │
-│  ───────────────────────────────────────                    │
-│  1. Send base mesh geometry to AI                           │
-│  2. AI suggests structured corrections:                     │
-│     - "Hull should curve inward 15% at waterline"           │
-│     - "Bow angle too steep, reduce by 10°"                  │
-│  3. Apply corrections to mesh programmatically              │
-│  4. Output: Corrected OBJ file                              │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+
+**Key Challenges:**
+1. How to ensure AI output matches blueprints, not just "looks good"?
+2. How to feed geometric corrections back to mesh?
+3. How to validate AI output quality?
+
+**See:** [Phase 5 Specification](./pipeline/phase_5_refinement.md)
 
 ---
 
-## Data Flow
+## Technology Requirements
 
-```
-User uploads blueprint
-        │
-        ▼
-┌───────────────────┐
-│ BlueprintSplitter │ ──▶ topView.base64, sideView.base64
-└───────────────────┘
-        │
-        ▼
-┌───────────────────┐
-│  Gemini Analysis  │ ──▶ AnalysisData { shipClass, dimensions, geometry }
-└───────────────────┘
-        │
-        ▼
-┌───────────────────┐
-│   VisionKernel    │ ──▶ topProfile[], sideProfile[]
-└───────────────────┘
-        │
-        ▼
-┌───────────────────┐
-│   meshGenerator   │ ──▶ ship.obj (vertices, faces, groups)
-└───────────────────┘
-        │
-        ▼
-┌───────────────────┐
-│  Nano Banana Pro  │ ──▶ Refined 3D visualization
-└───────────────────┘
-        │
-        ▼
-User downloads OBJ + views rendered output
-```
+| Component | Requirement | Rationale |
+|-----------|-------------|-----------|
+| Runtime | Browser (client-side) | No backend needed, user privacy |
+| Image Processing | Canvas API | Universal, fast, no dependencies |
+| 3D Export | OBJ format | Text-based, universal, debuggable |
+| AI Provider | Google Gemini API | Grounding + Nano Banana Pro spatial reasoning |
+| Testing | Vitest or Jest | Fast, TypeScript-native |
 
 ---
 
-## Technology Stack
+## Data Flow Contract
 
-| Layer | Technology | Purpose |
-|-------|------------|---------|
-| Frontend | React 19 + TypeScript | UI, state management |
-| Build | Vite 6 | Fast dev server, bundling |
-| Styling | Tailwind CSS | Utility-first CSS |
-| AI - Analysis | Gemini 2.5 Flash | Blueprint analysis, grounding |
-| AI - Generation | Gemini 3 Pro Image | 3D visualization, refinement |
-| Grounding | Google Search | Real-world ship dimensions |
-| 3D Export | Custom OBJ generator | Mesh file creation |
-| Testing | Vitest | Unit tests |
+Each phase must satisfy this contract:
 
----
-
-## Key Interfaces
+1. **Defined Input Schema**: TypeScript interface, validated at runtime
+2. **Defined Output Schema**: TypeScript interface, validated at runtime
+3. **Deterministic Phases**: Same input → same output (testable)
+4. **AI Phases**: Structured output schema (JSON), validated before use
+5. **Error Propagation**: Clear error types that identify failing phase
 
 ```typescript
-// User-adjustable parameters
-interface ShipParameters {
-  hullExtrusion: number      // % inflation of hull envelope
-  turretScale: number        // % scaling of turret geometry
-  superstructureHeight: number
-  calibrationScale: number   // meters per pixel
-  modelStyle: ModelStyle     // Wireframe | Clay | Photorealistic
-  camouflage: string         // Navy Grey | Dazzle | Measure 22
-  dimensions: ShipDimensions // length, beam, draft (meters)
-}
+type PipelineResult<T> =
+  | { success: true; data: T; phase: PhaseNumber }
+  | { success: false; error: PipelineError; phase: PhaseNumber };
 
-// AI analysis output
-interface AnalysisData {
-  shipClass: string
-  realDimensions?: ShipDimensions
-  geometry?: GeometricMap
-  // ... additional metadata
-}
-
-// Extracted silhouettes
-interface ProfileData {
-  top: Float32Array    // Beam at each length position
-  side: Float32Array   // Draft at each length position
-  resolution: number   // Samples per meter
+interface PipelineError {
+  code: string;
+  message: string;
+  recoverable: boolean;
+  suggestion?: string;
 }
 ```
 
 ---
 
-## Design Principles
+## Testing Strategy
 
-1. **Separation of Concerns**: Each phase has single responsibility
-2. **Deterministic Core**: Geometry extraction/generation is pure math
-3. **AI at Boundaries**: AI handles ambiguity, not computation
-4. **Progressive Enhancement**: Each phase improves on the last
-5. **Inspectable Artifacts**: Every intermediate output is human-readable
-6. **Graceful Degradation**: System works without AI (just less refined)
+| Phase | Test Type | Example |
+|-------|-----------|---------|
+| Phase 1 | Unit | Cropping math produces correct coordinates |
+| Phase 2 | Integration (mocked) | Mock Gemini returns valid JSON |
+| Phase 3 | Unit + Golden | Known image → known profile |
+| Phase 4 | Unit + Snapshot | Profile → valid OBJ (parseable) |
+| Phase 5 | Integration | AI returns valid structured response |
+
+**Golden Dataset**: A set of known-good blueprints with expected outputs at each phase.
 
 ---
 
-## Future Architecture Considerations
+## Open Questions
 
-- **WebGL Viewport**: Real-time 3D preview (Three.js) instead of AI-rendered images
-- **Mesh Feedback Loop**: AI corrections fed back to lofting stage
-- **Batch Processing**: Multiple ships in parallel
-- **Version Control**: Track mesh iterations per ship
-- **Plugin System**: Custom extractors for different blueprint styles
+These need resolution before implementation:
+
+1. **Cross-section shape**: Ellipse is an assumption. Should we use hull form coefficients?
+2. **Coordinate system**: Y-up or Z-up? How does this affect OBJ compatibility?
+3. **Scale calibration**: How to map pixel dimensions to real-world meters?
+4. **Error handling**: What happens if AI grounding fails? Fallback to user input?
+5. **Progressive rendering**: Should we show intermediate results or wait for completion?
 
 ---
 
@@ -322,5 +289,4 @@ interface ProfileData {
 
 - [North Star](./north_star.md) — Vision and goals
 - [Gemini Capabilities](./research/gemini_capabilities.md) — AI model research
-- [Pipeline Specification](./pipeline_specification.md) — Detailed phase specs
-- [Phase 2 Implementation](./implementation_plan_phase_2.md) — VisionKernel roadmap
+- [Pipeline Phase Specifications](./pipeline/) — Detailed phase docs
