@@ -11,214 +11,179 @@ status: Specification (Not Implemented)
 
 ## Overview
 
-NavalForge 3D is a **hybrid deterministic-AI pipeline** that transforms 2D naval blueprints into 3D ship models. The system is organized into five sequential phases, each with clear inputs, outputs, and responsibilities.
+NavalForge 3D is a **hybrid deterministic-AI image pipeline studio** that transforms 2D naval blueprint collections into 3D ship models. The system is organized into four sequential stages, each functioning as an independent mini-project with clear inputs, outputs, and responsibilities.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           NAVALFORGE 3D PIPELINE                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐         │
-│  │     PHASE 1     │───▶│     PHASE 2     │───▶│     PHASE 3     │         │
-│  │    Ingestion    │    │    Grounding    │    │   Extraction    │         │
-│  │  (Deterministic)│    │  (AI-Assisted)  │    │ (Deterministic) │         │
-│  └─────────────────┘    └─────────────────┘    └─────────────────┘         │
-│          │                      │                      │                    │
-│          ▼                      ▼                      ▼                    │
-│     [Base64 imgs]          [Metadata]            [Profiles]                 │
-│                                                                             │
-│  ┌─────────────────┐    ┌─────────────────┐                                │
-│  │     PHASE 4     │───▶│     PHASE 5     │                                │
-│  │     Lofting     │    │   Refinement    │                                │
-│  │ (Deterministic) │    │  (AI-Assisted)  │                                │
-│  └─────────────────┘    └─────────────────┘                                │
-│          │                      │                                           │
-│          ▼                      ▼                                           │
-│       [OBJ Mesh]          [Final Output]                                    │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           NAVALFORGE 3D PIPELINE                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────────┐   │
+│  │                        STAGE 0: INGESTION                                │   │
+│  │                    (Asset Management Foundation)                         │   │
+│  │                                                                          │   │
+│  │   Raw Images → Vision Analysis → Auto-Crop → Tag → Database → Relate   │   │
+│  │        ↓            ↓              ↓         ↓        ↓          ↓      │   │
+│  │   [Archive]   [Structure]    [Crops]    [Tags]   [Store]   [Graph]     │   │
+│  └─────────────────────────────────────────────────────────────────────────┘   │
+│                                        │                                        │
+│                                        ▼                                        │
+│  ┌───────────────────┐  ┌───────────────────┐  ┌───────────────────────────┐  │
+│  │     STAGE 1       │  │     STAGE 2       │  │        STAGE 3            │  │
+│  │    Grounding      │→ │    Extraction     │→ │      Generation           │  │
+│  │  (AI-Assisted)    │  │ (Deterministic)   │  │ (Deterministic + AI)      │  │
+│  │                   │  │                   │  │                           │  │
+│  │ • Ship ID         │  │ • Profile curves  │  │ • Hull lofting            │  │
+│  │ • Dimensions      │  │ • Background det  │  │ • Component placement     │  │
+│  │ • Geometry hints  │  │ • Smoothing       │  │ • OBJ export              │  │
+│  │ • Reference DB    │  │                   │  │ • AI refinement (opt)     │  │
+│  └───────────────────┘  └───────────────────┘  └───────────────────────────┘  │
+│          │                      │                          │                    │
+│          ▼                      ▼                          ▼                    │
+│   [Verified Specs]        [Float32 Curves]          [3D OBJ + Renders]         │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Core Architecture Principle
 
-**Deterministic First, AI Second**
+**Semi-Automated, LLM-Driven, Database-Backed**
 
-The system alternates between deterministic (reproducible, testable) and AI-assisted (flexible, intelligent) phases:
+This is NOT a simple web app for one-at-a-time image processing. It's the foundation of a vast image pipeline studio that:
 
-| Phase | Type | Why |
+- **Batch processes** entire blueprint collections
+- **LLM vision** handles classification, cropping, tagging automatically
+- **Database stores** everything with full provenance
+- **Human review is optional**, not required
+- **Relationships** track connections between assets
+
+### Deterministic First, AI Second
+
+Where possible, we use deterministic (reproducible, testable) processing, reserving AI for tasks that require understanding:
+
+| Stage | Type | Why |
 |-------|------|-----|
-| 1. Ingestion | Deterministic | Image cropping is pure coordinate math |
-| 2. Grounding | AI-Assisted | Ship identification requires visual understanding |
-| 3. Extraction | Deterministic | Pixel scanning is pure computation |
-| 4. Lofting | Deterministic | Mesh generation is geometry math |
-| 5. Refinement | AI-Assisted | Filling in unknowns requires inference |
-
-This separation means:
-- **Bugs in deterministic phases** can be traced and fixed with unit tests
-- **AI phases** are constrained by deterministic outputs (less hallucination surface)
-- **Each phase** can be developed and tested independently
+| 0. Ingestion | AI + Deterministic | Vision analysis + pure cropping math |
+| 1. Grounding | AI-Assisted | Ship identification requires visual understanding |
+| 2. Extraction | Deterministic | Pixel scanning is pure computation |
+| 3. Generation | Deterministic + AI | Mesh = math; refinement = inference |
 
 ---
 
-## Phase Specifications
+## Stage Overview
 
-### Phase 1: Ingestion & Normalization
+### Stage 0: Ingestion & Asset Management
 
-**Purpose:** Accept blueprint images, separate into orthographic views (top, side)
+**The Foundation** — This is the largest and most complex stage.
 
-**Input:**
-- One combined image (containing both views), OR
-- Two separate images (top view, side view)
+**Purpose:** Ingest raw blueprint images, analyze with LLM vision, auto-crop to individual views, tag with hierarchical taxonomy, store in database, and track relationships.
+
+**Documentation:** [`/docs/stages/stage_0_ingestion/`](./stages/stage_0_ingestion/README.md)
+
+**Components:**
+- Vision Analysis — LLM examines images, detects views
+- Auto-Cropping — Deterministic cropping based on LLM bounds
+- Tagging Taxonomy — Hierarchical tag system with LLM matching
+- Database Schema — SQLite storage for all assets
+- Relationships — Track siblings, duplicates, versions
 
 **Output:**
-```typescript
-interface IngestionOutput {
-  topView: string;      // Base64 PNG, cropped to content bounds
-  sideView: string;     // Base64 PNG, cropped to content bounds
-  sourceMetadata: {
-    originalDimensions: { width: number; height: number };
-    cropRegions: CropRegion[];
-  };
-}
-```
-
-**Key Challenges:**
-1. How to reliably distinguish top view from side view?
-2. How to handle arbitrary image orientations?
-3. How to crop tightly without losing content?
-
-**See:** [Phase 1 Specification](./pipeline/phase_1_ingestion.md)
+- Tagged, organized crop database
+- Full provenance tracking
+- Relationship graph
 
 ---
 
-### Phase 2: Semantic Grounding
+### Stage 1: Grounding & Enrichment
 
-**Purpose:** Identify ship class, retrieve real-world dimensions
+**Purpose:** Identify ship classes from tagged crops and enrich with real-world specifications.
 
-**Input:**
-- Blueprint image(s) from Phase 1
+**Documentation:** [`/docs/stages/stage_1_grounding/`](./stages/stage_1_grounding/README.md)
+
+**Components:**
+- Semantic Grounding — LLM + Google Search for dimensions
+- Reference Database — Cache of verified ship specs
+- Geometry Hints — Turret/superstructure position extraction
 
 **Output:**
 ```typescript
 interface GroundingOutput {
-  shipClass: string;           // e.g., "Yamato-class battleship"
-  confidence: number;          // 0-1
+  identification: {
+    shipClass: string;
+    confidence: number;
+    verified: boolean;
+  };
   dimensions: {
-    length: number;            // meters
-    beam: number;              // meters
-    draft: number;             // meters
-    source: 'grounded' | 'estimated';
+    length: number;  // meters
+    beam: number;    // meters
+    draft: number;   // meters
+    source: 'reference_db' | 'google_search' | 'ai_estimate';
   };
   geometryHints: {
-    turretPositions: number[]; // normalized 0-1 along length
-    superstructureBounds: { start: number; end: number };
+    turretPositions: number[];  // 0-1 normalized
+    superstructure: { start: number; end: number };
   };
 }
 ```
 
-**Key Challenges:**
-1. What if the ship class is unknown or fictional?
-2. How to validate grounded dimensions are accurate?
-3. How to handle ambiguous or partial blueprints?
-
-**See:** [Phase 2 Specification](./pipeline/phase_2_grounding.md)
-
 ---
 
-### Phase 3: Computational Extraction
+### Stage 2: Extraction & Geometry
 
-**Purpose:** Extract silhouette profiles from blueprint images
+**Purpose:** Extract precise silhouette profiles from blueprint images using deterministic pixel-level analysis.
 
-**Input:**
-- Top view image (base64)
-- Side view image (base64)
-- Optional: extraction parameters (threshold, smoothing)
+**Documentation:** [`/docs/stages/stage_2_extraction/`](./stages/stage_2_extraction/README.md)
+
+**Components:**
+- Profile Extraction — Column-scanning algorithm
+- Background Detection — Auto-detect background color
+- Smoothing — Noise reduction techniques
 
 **Output:**
 ```typescript
 interface ExtractionOutput {
-  topProfile: Float32Array;    // Beam distribution along length (0-1)
-  sideProfile: Float32Array;   // Draft distribution along length (0-1)
-  resolution: number;          // Samples per unit length
-  debug: {
-    backgroundColorDetected: [number, number, number];
-    pixelsCounted: number;
-    profilePeaks: { index: number; value: number }[];
+  topProfile: Float32Array;    // Beam distribution (0-1)
+  sideProfile: Float32Array;   // Height distribution (0-1)
+  resolution: number;
+  bounds: {
+    minIndex: number;
+    maxIndex: number;
+    peakIndex: number;
   };
 }
 ```
 
-**Key Challenges:**
-1. How to handle varying blueprint styles (clean vector vs. scanned)?
-2. How to separate ship from annotations/text/scale bars?
-3. How to handle non-white backgrounds?
-
-**See:** [Phase 3 Specification](./pipeline/phase_3_extraction.md)
-
 ---
 
-### Phase 4: Elastic Lofting
+### Stage 3: 3D Generation
 
-**Purpose:** Generate 3D mesh from profile curves
+**Purpose:** Transform profiles into 3D meshes with optional AI refinement.
 
-**Input:**
-- Profile curves from Phase 3
-- Dimensions from Phase 2
-- User parameters (optional overrides)
+**Documentation:** [`/docs/stages/stage_3_generation/`](./stages/stage_3_generation/README.md)
+
+**Components:**
+- Lofting — Hull mesh from profile curves
+- Component Placement — Turrets, superstructure, funnels
+- OBJ Export — Wavefront OBJ file generation
+- AI Refinement — Optional visualization and correction
 
 **Output:**
 ```typescript
-interface LoftingOutput {
-  objContent: string;          // Valid Wavefront OBJ file
+interface GenerationOutput {
+  obj: string;                  // Valid OBJ file content
   stats: {
     vertexCount: number;
     faceCount: number;
-    groups: string[];          // ['hull', 'superstructure', 'turrets']
-    boundingBox: { min: Vector3; max: Vector3 };
+    groups: string[];
   };
+  renders?: {                   // If AI refinement enabled
+    view: string;
+    image: string;              // Base64
+  }[];
 }
 ```
-
-**Key Challenges:**
-1. What cross-section shape to use? (Ellipse is a guess)
-2. How to handle bow/stern tapering realistically?
-3. How to place components (turrets, superstructure) correctly?
-
-**See:** [Phase 4 Specification](./pipeline/phase_4_lofting.md)
-
----
-
-### Phase 5: AI Refinement
-
-**Purpose:** Enhance output using AI spatial reasoning
-
-**Input:**
-- Base mesh from Phase 4
-- Original blueprints from Phase 1
-- Ship class from Phase 2
-
-**Output:**
-```typescript
-// Option A: Visual refinement
-interface VisualOutput {
-  renderedViews: Map<ViewAngle, string>;  // Base64 images
-}
-
-// Option B: Geometric correction (future)
-interface GeometricOutput {
-  corrections: MeshCorrection[];
-  correctedObj: string;
-}
-```
-
-**Key Challenges:**
-1. How to ensure AI output matches blueprints, not just "looks good"?
-2. How to feed geometric corrections back to mesh?
-3. How to validate AI output quality?
-
-**See:** [Phase 5 Specification](./pipeline/phase_5_refinement.md)
 
 ---
 
@@ -226,30 +191,31 @@ interface GeometricOutput {
 
 | Component | Requirement | Rationale |
 |-----------|-------------|-----------|
-| Runtime | Browser (client-side) | No backend needed, user privacy |
-| Image Processing | Canvas API | Universal, fast, no dependencies |
-| 3D Export | OBJ format | Text-based, universal, debuggable |
-| AI Provider | Google Gemini API | Grounding + Nano Banana Pro spatial reasoning |
-| Testing | Vitest or Jest | Fast, TypeScript-native |
+| Runtime | Node.js / Browser | Pipeline processing + optional UI |
+| Database | SQLite (better-sqlite3) | Embedded, fast, portable |
+| Image Processing | sharp (Node) / Canvas (Browser) | Industry standard |
+| 3D Export | OBJ format | Text-based, universal |
+| AI Provider | Google Gemini API | Vision + grounding + Nano Banana Pro |
+| Testing | Vitest | Fast, TypeScript-native |
 
 ---
 
 ## Data Flow Contract
 
-Each phase must satisfy this contract:
+Each stage must satisfy this contract:
 
 1. **Defined Input Schema**: TypeScript interface, validated at runtime
 2. **Defined Output Schema**: TypeScript interface, validated at runtime
-3. **Deterministic Phases**: Same input → same output (testable)
-4. **AI Phases**: Structured output schema (JSON), validated before use
-5. **Error Propagation**: Clear error types that identify failing phase
+3. **Deterministic Components**: Same input → same output (testable)
+4. **AI Components**: Structured output schema (JSON), validated before use
+5. **Error Propagation**: Clear error types that identify failing component
 
 ```typescript
-type PipelineResult<T> =
-  | { success: true; data: T; phase: PhaseNumber }
-  | { success: false; error: PipelineError; phase: PhaseNumber };
+type StageResult<T> =
+  | { success: true; data: T; stage: number; component: string }
+  | { success: false; error: StageError; stage: number; component: string };
 
-interface PipelineError {
+interface StageError {
   code: string;
   message: string;
   recoverable: boolean;
@@ -261,27 +227,37 @@ interface PipelineError {
 
 ## Testing Strategy
 
-| Phase | Test Type | Example |
+| Stage | Test Type | Example |
 |-------|-----------|---------|
-| Phase 1 | Unit | Cropping math produces correct coordinates |
-| Phase 2 | Integration (mocked) | Mock Gemini returns valid JSON |
-| Phase 3 | Unit + Golden | Known image → known profile |
-| Phase 4 | Unit + Snapshot | Profile → valid OBJ (parseable) |
-| Phase 5 | Integration | AI returns valid structured response |
+| Stage 0 | Unit + Integration | Vision schema validation, crop bounds |
+| Stage 1 | Integration (mocked) | Mock Gemini returns valid JSON |
+| Stage 2 | Unit + Golden | Known image → known profile |
+| Stage 3 | Unit + Snapshot | Profile → valid OBJ (parseable) |
 
-**Golden Dataset**: A set of known-good blueprints with expected outputs at each phase.
+**TDD Goals:** Each component document includes specific test cases that an LLM agent can build to.
 
 ---
 
-## Open Questions
+## Coordinate System
 
-These need resolution before implementation:
+All 3D geometry uses this coordinate system:
 
-1. **Cross-section shape**: Ellipse is an assumption. Should we use hull form coefficients?
-2. **Coordinate system**: Y-up or Z-up? How does this affect OBJ compatibility?
-3. **Scale calibration**: How to map pixel dimensions to real-world meters?
-4. **Error handling**: What happens if AI grounding fails? Fallback to user input?
-5. **Progressive rendering**: Should we show intermediate results or wait for completion?
+```
+        Y (up)
+        │
+        │     Z (length, bow to stern)
+        │    ╱
+        │   ╱
+        │  ╱
+        │ ╱
+        │╱
+        └────────── X (beam, port to starboard)
+
+- Origin: Midships, at waterline
+- X: Positive = starboard, Negative = port
+- Y: Positive = up, Negative = down (below waterline)
+- Z: 0 = bow, length = stern
+```
 
 ---
 
@@ -289,4 +265,10 @@ These need resolution before implementation:
 
 - [North Star](./north_star.md) — Vision and goals
 - [Gemini Capabilities](./research/gemini_capabilities.md) — AI model research
-- [Pipeline Phase Specifications](./pipeline/) — Detailed phase docs
+
+### Stage Documentation
+
+- [Stage 0: Ingestion](./stages/stage_0_ingestion/README.md) — Asset management foundation
+- [Stage 1: Grounding](./stages/stage_1_grounding/README.md) — Ship identification & enrichment
+- [Stage 2: Extraction](./stages/stage_2_extraction/README.md) — Profile curve extraction
+- [Stage 3: Generation](./stages/stage_3_generation/README.md) — 3D mesh generation

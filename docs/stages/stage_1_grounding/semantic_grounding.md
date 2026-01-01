@@ -1,13 +1,13 @@
 ---
-title: "Phase 2: Semantic Grounding — Specification"
+title: "Stage 1.1: Semantic Grounding"
 date: 2026-01-01
 author: Claude (Opus 4.5)
-phase: 2
-type: AI-Assisted
+stage: 1
+component: semantic_grounding
 status: Specification (Not Implemented)
 ---
 
-# Phase 2: Semantic Grounding
+# Semantic Grounding
 
 ## Purpose
 
@@ -15,8 +15,8 @@ Identify the ship class from blueprint imagery and retrieve authoritative real-w
 
 ## The Problem
 
-We have blueprint images, but we don't know:
-- What ship is this? (Class identification)
+We have tagged crops with ship class names, but we don't know:
+- Is the identification correct? (Validation)
 - How big is it actually? (Real dimensions)
 - Where are the key features? (Turrets, superstructure positions)
 
@@ -29,34 +29,42 @@ Without this information, we can only generate arbitrary geometry. With groundin
 ```typescript
 // Input
 interface GroundingInput {
-  topView: string;          // Base64 from Phase 1
-  sideView: string;         // Base64 from Phase 1
+  cropId: string;             // From Stage 0
+  views: CropView[];          // Multiple views if available
+  existingTags: TagAssignment[];
   userHints?: {
-    shipClass?: string;     // User can provide if known
-    era?: string;           // e.g., "WW2", "Modern"
-    nation?: string;        // e.g., "Japan", "USA"
+    shipClass?: string;       // User can override if known
+    era?: string;             // e.g., "WW2", "Modern"
+    nation?: string;          // e.g., "Japan", "USA"
   };
+}
+
+interface CropView {
+  cropId: string;
+  viewType: ViewType;         // side_profile, plan_view, etc.
+  imageData: string;          // Base64
 }
 
 // Output
 interface GroundingOutput {
   identification: {
-    shipClass: string;      // e.g., "Yamato-class battleship"
-    confidence: number;     // 0.0 - 1.0
-    alternates: string[];   // Other possible matches
+    shipClass: string;        // e.g., "Yamato-class battleship"
+    confidence: number;       // 0.0 - 1.0
+    alternates: string[];     // Other possible matches
+    verified: boolean;        // True if from reference DB
   };
   dimensions: {
-    length: number;         // meters
-    beam: number;           // meters
-    draft: number;          // meters
-    displacement?: number;  // tonnes (if available)
-    source: 'google_search' | 'ai_estimate' | 'user_provided';
+    length: number;           // meters
+    beam: number;             // meters
+    draft: number;            // meters
+    displacement?: number;    // tonnes (if available)
+    source: 'reference_db' | 'google_search' | 'ai_estimate' | 'user_provided';
   };
   geometryHints: {
     turretPositions: NormalizedPosition[];  // 0-1 along ship length
     superstructure: {
-      start: number;        // 0-1
-      end: number;          // 0-1
+      start: number;          // 0-1
+      end: number;            // 0-1
     };
     funnelPositions?: NormalizedPosition[];
   };
@@ -76,29 +84,29 @@ type NormalizedPosition = number;  // 0.0 = bow, 1.0 = stern
 ## Pain Points & Challenges
 
 ### 1. Ship Identification Accuracy
-**Problem:** What if the AI misidentifies the ship?
+**Problem:** What if the Stage 0 tag is wrong?
 
 **Mitigations:**
 - Return confidence score + alternatives
+- Cross-reference multiple views of same class
 - Allow user to correct identification
-- Use multiple image views for better accuracy
-- Validate against known ship classes database
+- Validate against reference database
 
-**Recommendation:** Always show alternatives and allow override. Confidence < 0.7 should prompt user confirmation.
+**Recommendation:** Confidence < 0.7 should prompt review or show alternatives.
 
 ### 2. Search Grounding Reliability
 **Problem:** What if Google Search returns wrong dimensions?
 
 **Mitigations:**
 - Cross-reference multiple sources
-- Validate dimensions are physically plausible (e.g., length > beam > draft)
-- Fallback to AI estimation if search fails
+- Validate dimensions are physically plausible (length > beam > draft)
+- Prefer reference database over search
 - Show source to user for verification
 
-**Recommendation:** Validate dimensions pass sanity checks. Flag suspiciously round numbers or outliers.
+**Recommendation:** Validate dimensions pass sanity checks. Flag suspiciously round numbers.
 
 ### 3. Unknown/Fictional Ships
-**Problem:** What if the blueprint is for a fictional or unidentified ship?
+**Problem:** What about never-built designs or fictional ships?
 
 **Handling:**
 - Return `identification.confidence = 0`
@@ -106,14 +114,14 @@ type NormalizedPosition = number;  // 0.0 = bow, 1.0 = stern
 - Mark `dimensions.source = 'ai_estimate'`
 - Allow user to input custom dimensions
 
-**Recommendation:** Graceful degradation. The pipeline should still work with estimated dimensions.
+**Recommendation:** Pipeline should still work with estimated dimensions.
 
 ### 4. Geometry Hint Accuracy
-**Problem:** How accurately can AI determine turret positions from blueprints?
+**Problem:** How accurately can AI determine turret positions?
 
-**Reality check:** This is approximate. Turret positions from AI are hints, not measurements.
+**Reality check:** This is approximate. Turret positions are hints, not measurements.
 
-**Recommendation:** Use normalized positions (0-1) for flexibility. Accept ±10% error. Allow user adjustment.
+**Recommendation:** Use normalized positions (0-1). Accept ±10% error. Allow adjustment.
 
 ---
 
@@ -122,19 +130,29 @@ type NormalizedPosition = number;  // 0.0 = bow, 1.0 = stern
 ### Gemini Integration
 
 ```typescript
-async function groundShipBlueprint(input: GroundingInput): Promise<GroundingOutput> {
+async function groundShipFromCrop(input: GroundingInput): Promise<GroundingOutput> {
+  // First check reference database
+  const cached = await referenceDb.findByClass(input.existingTags);
+  if (cached && cached.confidence > 0.9) {
+    return formatCachedResult(cached, input);
+  }
+
+  // Otherwise use LLM with search grounding
   const model = getGeminiModel({
     model: 'gemini-2.5-flash',
-    tools: [{ googleSearch: {} }]  // Enable grounding
+    tools: [{ googleSearch: {} }]
   });
+
+  const images = input.views.map(v => ({
+    inlineData: { mimeType: 'image/png', data: v.imageData }
+  }));
 
   const response = await model.generateContent({
     contents: [{
       role: 'user',
       parts: [
         { text: GROUNDING_PROMPT },
-        { inlineData: { mimeType: 'image/png', data: input.topView } },
-        { inlineData: { mimeType: 'image/png', data: input.sideView } }
+        ...images
       ]
     }],
     generationConfig: {
@@ -143,7 +161,12 @@ async function groundShipBlueprint(input: GroundingInput): Promise<GroundingOutp
     }
   });
 
-  return validateAndParse(response);
+  const result = validateAndParse(response);
+
+  // Cache for future use
+  await referenceDb.save(result);
+
+  return result;
 }
 ```
 
@@ -152,7 +175,7 @@ async function groundShipBlueprint(input: GroundingInput): Promise<GroundingOutp
 ```
 You are a naval architecture expert analyzing warship blueprints.
 
-Given the top view and side view blueprints, perform these tasks:
+Given the blueprint views, perform these tasks:
 
 1. IDENTIFICATION
    - Identify the ship class (e.g., "Iowa-class battleship")
@@ -182,8 +205,6 @@ Return your analysis as structured JSON.
 ## TDD Goals
 
 ### Test 1: Response Schema Validation
-**Goal:** Verify that AI responses conform to expected schema.
-
 ```typescript
 describe('validateGroundingResponse', () => {
   it('should accept valid complete response', () => {
@@ -191,7 +212,8 @@ describe('validateGroundingResponse', () => {
       identification: {
         shipClass: 'Yamato-class battleship',
         confidence: 0.95,
-        alternates: ['Musashi', 'Shinano']
+        alternates: ['Musashi', 'Shinano'],
+        verified: false
       },
       dimensions: {
         length: 263,
@@ -214,7 +236,6 @@ describe('validateGroundingResponse', () => {
   it('should reject response with missing required fields', () => {
     const response = {
       identification: { shipClass: 'Unknown' }
-      // missing dimensions and geometryHints
     };
 
     const result = validateGroundingResponse(response);
@@ -241,13 +262,7 @@ describe('validateGroundingResponse', () => {
 });
 ```
 
-**Pass Criteria:** Validation correctly identifies valid vs invalid responses.
-
----
-
 ### Test 2: Dimension Plausibility Checks
-**Goal:** Verify dimension sanity checking logic.
-
 ```typescript
 describe('validateDimensions', () => {
   it('should accept typical battleship dimensions', () => {
@@ -271,11 +286,6 @@ describe('validateDimensions', () => {
     expect(result.valid).toBe(false);
   });
 
-  it('should reject if beam < draft', () => {
-    const result = validateDimensions({ length: 100, beam: 10, draft: 15 });
-    expect(result.valid).toBe(false);
-  });
-
   it('should warn on suspiciously round numbers', () => {
     const result = validateDimensions({ length: 300, beam: 40, draft: 10 });
     expect(result.warnings).toContain('Dimensions are suspiciously round');
@@ -283,13 +293,39 @@ describe('validateDimensions', () => {
 });
 ```
 
-**Pass Criteria:** Validation logic catches impossible dimensions.
+### Test 3: Reference Database Integration
+```typescript
+describe('referenceDb integration', () => {
+  it('should use cached data when available', async () => {
+    await referenceDb.save({
+      shipClass: 'Iowa-class',
+      dimensions: { length: 270, beam: 33, draft: 11 },
+      confidence: 0.98
+    });
 
----
+    const result = await groundShipFromCrop({
+      views: [testView],
+      existingTags: [{ tagId: 'ship-class/iowa' }]
+    });
 
-### Test 3: Normalized Position Validation
-**Goal:** Verify geometry hints are in valid range.
+    expect(result.identification.verified).toBe(true);
+    expect(result.dimensions.source).toBe('reference_db');
+  });
 
+  it('should fall back to search when not cached', async () => {
+    mockGeminiResponse(validGroundingResponse);
+
+    const result = await groundShipFromCrop({
+      views: [testView],
+      existingTags: [{ tagId: 'ship-class/unknown-class' }]
+    });
+
+    expect(result.dimensions.source).toBe('google_search');
+  });
+});
+```
+
+### Test 4: Normalized Position Validation
 ```typescript
 describe('validateGeometryHints', () => {
   it('should accept positions in 0-1 range', () => {
@@ -302,24 +338,15 @@ describe('validateGeometryHints', () => {
 
   it('should reject positions outside 0-1 range', () => {
     const result = validateGeometryHints({
-      turretPositions: [0.15, 1.2, -0.1],  // 1.2 and -0.1 are invalid
+      turretPositions: [0.15, 1.2, -0.1],
       superstructure: { start: 0.35, end: 0.55 }
-    });
-    expect(result.valid).toBe(false);
-    expect(result.errors).toContain('turretPositions[1] must be between 0 and 1');
-  });
-
-  it('should reject superstructure where start >= end', () => {
-    const result = validateGeometryHints({
-      turretPositions: [0.2, 0.8],
-      superstructure: { start: 0.6, end: 0.4 }  // Invalid: start > end
     });
     expect(result.valid).toBe(false);
   });
 
   it('should sort turret positions bow to stern', () => {
     const normalized = normalizeGeometryHints({
-      turretPositions: [0.75, 0.15, 0.25],  // Out of order
+      turretPositions: [0.75, 0.15, 0.25],
       superstructure: { start: 0.35, end: 0.55 }
     });
     expect(normalized.turretPositions).toEqual([0.15, 0.25, 0.75]);
@@ -327,17 +354,10 @@ describe('validateGeometryHints', () => {
 });
 ```
 
-**Pass Criteria:** Geometry hints are validated and normalized correctly.
-
----
-
-### Test 4: Fallback Behavior
-**Goal:** Verify graceful degradation when identification fails.
-
+### Test 5: Fallback for Unknown Ships
 ```typescript
 describe('handleUnknownShip', () => {
   it('should return estimated dimensions for unidentified ships', async () => {
-    // Mock AI response for unknown ship
     mockGeminiResponse({
       identification: {
         shipClass: 'Unknown warship',
@@ -356,14 +376,14 @@ describe('handleUnknownShip', () => {
       }
     });
 
-    const result = await groundShipBlueprint(testInput);
+    const result = await groundShipFromCrop(testInput);
 
     expect(result.identification.confidence).toBeLessThan(0.5);
     expect(result.dimensions.source).toBe('ai_estimate');
   });
 
   it('should use user-provided dimensions when available', async () => {
-    const result = await groundShipBlueprint({
+    const result = await groundShipFromCrop({
       ...testInput,
       userHints: {
         dimensions: { length: 200, beam: 25, draft: 8 }
@@ -376,63 +396,16 @@ describe('handleUnknownShip', () => {
 });
 ```
 
-**Pass Criteria:** Pipeline works even when ship is not identified.
-
----
-
-### Test 5: Integration with Real API (Mocked)
-**Goal:** Verify end-to-end flow with mocked Gemini response.
-
-```typescript
-describe('groundShipBlueprint integration', () => {
-  beforeEach(() => {
-    mockGeminiAPI();
-  });
-
-  it('should process Yamato blueprint correctly', async () => {
-    const input = {
-      topView: loadTestImage('yamato_top.png'),
-      sideView: loadTestImage('yamato_side.png')
-    };
-
-    const result = await groundShipBlueprint(input);
-
-    expect(result.identification.shipClass).toContain('Yamato');
-    expect(result.dimensions.length).toBeCloseTo(263, 0);
-    expect(result.dimensions.beam).toBeCloseTo(39, 0);
-    expect(result.geometryHints.turretPositions.length).toBe(3);
-  });
-
-  it('should handle API timeout gracefully', async () => {
-    mockGeminiTimeout(5000);
-
-    await expect(groundShipBlueprint(testInput)).rejects.toThrow('Grounding timeout');
-  });
-
-  it('should retry on transient errors', async () => {
-    mockGeminiErrorThenSuccess();
-
-    const result = await groundShipBlueprint(testInput);
-    expect(result.identification.shipClass).toBeDefined();
-  });
-});
-```
-
-**Pass Criteria:** Integration handles both success and error cases.
-
 ---
 
 ## Success Criteria
 
-A correct implementation of Phase 2 will:
-
 1. ✅ Identify major WW2 capital ships with >80% accuracy
-2. ✅ Return grounded dimensions within 5% of actual specs for known ships
+2. ✅ Return grounded dimensions within 5% of actual specs
 3. ✅ Complete grounding in <10 seconds (including search)
 4. ✅ Gracefully handle unknown ships with AI estimates
-5. ✅ Validate all responses before returning
-6. ✅ Allow user override of identification and dimensions
-7. ✅ Log search queries for debugging
+5. ✅ Cache verified results for instant future lookups
+6. ✅ Validate all responses before returning
 
 ---
 
@@ -441,32 +414,14 @@ A correct implementation of Phase 2 will:
 | Error | Recovery |
 |-------|----------|
 | API rate limit | Exponential backoff, max 3 retries |
-| Invalid JSON response | Parse with fallback extraction, log error |
+| Invalid JSON response | Parse with fallback extraction |
 | Search grounding fails | Fall back to AI-only estimation |
 | All methods fail | Return error, prompt user for manual input |
 
 ---
 
-## What's NOT In Scope (v1)
-
-- Multi-ship identification (focus on single ship per blueprint)
-- Submarine identification (surface ships only)
-- Modern ship classes (focus on historical vessels with available data)
-- Non-warship identification (merchant ships, civilian vessels)
-
----
-
-## Dependencies
-
-- Google Gemini API (gemini-2.5-flash with tools)
-- Google Search grounding (for dimension lookup)
-- Network connectivity required
-
----
-
 ## Related Documents
 
-- [Architecture](../architecture.md) — System overview
-- [Gemini Capabilities](../research/gemini_capabilities.md) — Model research
-- [Phase 1: Ingestion](./phase_1_ingestion.md) — Previous phase
-- [Phase 3: Extraction](./phase_3_extraction.md) — Next phase
+- [Stage 1 Overview](./README.md)
+- [Reference Database](./reference_database.md)
+- [Geometry Hints](./geometry_hints.md)
