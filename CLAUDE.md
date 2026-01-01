@@ -17,19 +17,26 @@ Before making changes, familiarize yourself with:
 | [docs/model_inventory.md](docs/model_inventory.md) | AI models and their roles |
 | [docs/research/open_questions.md](docs/research/open_questions.md) | Unresolved decisions—check before assuming |
 
-## Open Questions Pattern
+## Open Questions vs Research Items
 
-**Before making architectural decisions, check [docs/research/open_questions.md](docs/research/open_questions.md).**
+**Before implementing, check [docs/research/open_questions.md](docs/research/open_questions.md).**
 
-If you encounter an unresolved question:
+This project distinguishes between:
+
+- **Open Questions (Q1, Q2, ...)** — Need human judgment. Don't assume answers; ask the user.
+- **Research Items (R1, R2, ...)** — Need web search. Information is too recent (late 2025) for training data. Search before implementing.
+
+### For Open Questions
+
 1. Do NOT assume an answer
-2. Add it to `open_questions.md` if not already there
-3. Note the question in your response
-4. Propose options rather than making unilateral decisions
+2. Present options to the user
+3. Wait for their decision
 
-If you resolve a question through research or testing:
-1. Move it to the "Resolved" section with evidence
-2. Update any documents that referenced the question
+### For Research Items
+
+1. Use web search to get current information
+2. Document findings with sources
+3. Update the research item and related docs
 
 ## Coding Conventions
 

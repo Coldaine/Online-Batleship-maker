@@ -8,48 +8,46 @@ Guidelines for AI agents working on NavalForge 3D. This applies to Claude Code, 
 2. **Check open questions**: See [docs/research/open_questions.md](docs/research/open_questions.md) for unresolved decisions.
 3. **Understand the architecture**: See [docs/architecture.md](docs/architecture.md) for system design.
 
-## The Open Questions Pattern
+## Open Questions vs Research Items
 
-This project uses a centralized open questions document to track unresolved technical decisions.
+This project tracks two types of unresolved items in [docs/research/open_questions.md](docs/research/open_questions.md):
+
+### Open Questions (Q1, Q2, ...)
+
+**Need human judgment.** These are decisions where the user needs to weigh in.
+
+- Don't assume answers
+- Present options to the user
+- Wait for their decision
+
+Example: "Should we support multiple hull shapes in v1?"
+
+### Research Items (R1, R2, ...)
+
+**Need web search.** These are factual gaps because information is too recent (late 2025) for training data.
+
+- Use web search before implementing
+- Document findings with sources
+- Update related docs
+
+Example: "What are the API limits for Nano Banana Pro?"
 
 ### When you encounter uncertainty
 
 ```
-Is this decision documented?
+Is this documented?
   → Yes → Follow the documentation
   → No → Is it in open_questions.md?
-    → Yes → Don't assume an answer, note the uncertainty
-    → No → Add it to open_questions.md, then proceed carefully
+    → Open Question? → Don't assume, ask user
+    → Research Item? → Web search first, then proceed
+    → Not listed? → Add it, then handle appropriately
 ```
 
 ### Why this matters
 
-- Prevents different agents from making conflicting assumptions
+- Prevents agents from guessing at things that require human decisions
+- Prevents agents from using stale training data for cutting-edge (late 2025) tech
 - Creates institutional memory for the project
-- Makes it clear what's decided vs what's still open
-
-### Adding a question
-
-When you encounter something unresolved:
-
-```markdown
-**Q[N]: [Clear, specific question]**
-
-- **Context:** [Why this question arose]
-- **Stakes:** [What depends on the answer]
-- **To validate:** [How to find the answer]
-- **Owner:** TBD
-- **Added:** [Date]
-```
-
-### Resolving a question
-
-If you find the answer through research or testing:
-
-1. Move the question to "Resolved Questions"
-2. Include evidence (benchmarks, docs, test results)
-3. Update documents that referenced the question
-4. Commit: `docs: Resolve open question Q[N] - [summary]`
 
 ## Stage-Based Development
 

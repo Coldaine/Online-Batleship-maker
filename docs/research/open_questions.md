@@ -1,162 +1,179 @@
 ---
-title: Open Questions
+title: Open Questions & Research Items
 date: 2026-01-01
 status: Living Document
 ---
 
-# Open Questions
+# Open Questions & Research Items
 
-This document tracks unresolved technical questions, design decisions pending validation, and research items that need investigation before implementation.
+This document tracks two distinct types of unresolved items:
 
-**Process:**
-1. Add questions here when they arise during planning or implementation
-2. Move answered questions to the "Resolved" section with findings
-3. Reference this document in architectural decisions
+1. **Open Questions** — Require human judgment, opinions, or decisions
+2. **Research Items** — Require factual research (web search, docs) because information is too recent for AI training data
 
 ---
 
-## Active Questions
+## Open Questions
 
-### Model Selection
+*These need human input to resolve. AI agents should not assume answers.*
 
-**Q1: Does Gemini 3 Flash match Gemini 3 Pro for geometry hint extraction?**
+### Q1: What's the right balance of pre-computation vs on-demand processing?
 
-- **Context:** Gemini 3 Pro has documented spatial reasoning capabilities. Gemini 3 Flash is 4x cheaper but benchmarks suggest comparable performance.
-- **Stakes:** ~$1.50 cost difference per ship if we use Pro unnecessarily
-- **To validate:** Run identical geometry hint prompts through both models on test blueprints, compare accuracy
+- **Decision needed:** Should we pre-extract profiles for all ingested crops, or extract on-demand when generating 3D?
+- **Tradeoffs:** Storage/upfront compute vs latency during generation
 - **Owner:** TBD
 - **Added:** 2026-01-01
 
 ---
 
-**Q2: Is Gemini 2.5 Flash adequate for high-volume vision analysis?**
+### Q2: Should Stage 0 ingestion be a separate service?
 
-- **Context:** Stage 0 ingestion processes many images. 2.5 Flash is $0.20/M cheaper than 3 Flash.
-- **Stakes:** For 1000 images, ~$20 cost difference
-- **To validate:** Compare classification accuracy between 2.5 Flash and 3 Flash on diverse blueprint set
+- **Decision needed:** Is batch-only ingestion acceptable, or do users need interactive ingestion?
+- **Tradeoffs:** Architectural complexity vs operational flexibility
 - **Owner:** TBD
 - **Added:** 2026-01-01
 
 ---
 
-**Q3: Should we use the `thinking_level` parameter on Gemini 3 Flash?**
+### Q3: How should we handle unknown ship classes?
 
-- **Context:** 3 Flash supports `thinking_level` (minimal, low, medium, high) to trade latency/cost for quality
-- **Stakes:** Could optimize per-task—use "minimal" for classification, "high" for geometry
-- **To validate:** Benchmark quality vs latency across thinking levels for each task type
+- **Decision needed:** When grounding fails to identify a ship class, what's the UX?
+- **Options:**
+  - (a) Prompt for manual input
+  - (b) Use AI-estimated dimensions with warning
+  - (c) Refuse to proceed
 - **Owner:** TBD
 - **Added:** 2026-01-01
 
 ---
 
-### Pipeline Architecture
+### Q4: Is elliptical hull cross-section adequate for v1?
 
-**Q4: Should Stage 0 ingestion be a separate service?**
-
-- **Context:** Ingestion is batch-oriented and could run independently from the interactive pipeline
-- **Stakes:** Architectural complexity vs operational flexibility
-- **To validate:** Determine if users need interactive ingestion or batch-only is acceptable
-- **Owner:** TBD
-- **Added:** 2026-01-01
-
----
-
-**Q5: What's the right balance of pre-computation vs on-demand processing?**
-
-- **Context:** We could pre-extract profiles for all ingested crops, or extract on-demand when generating 3D
-- **Stakes:** Storage/upfront compute vs latency during generation
-- **To validate:** Measure profile extraction time, estimate storage requirements
-- **Owner:** TBD
-- **Added:** 2026-01-01
-
----
-
-### 3D Generation
-
-**Q6: Is elliptical hull cross-section adequate for v1?**
-
+- **Decision needed:** Should we implement multiple hull shapes now, or ship with ellipse-only?
 - **Context:** Real ships have varied cross-sections (V-hull, flat bottom, rounded). We currently assume ellipse.
-- **Stakes:** Visual accuracy vs implementation complexity
-- **To validate:** Compare ellipse approximation to real hull photos for common ship classes
+- **Tradeoffs:** Visual accuracy vs implementation complexity
 - **Owner:** TBD
 - **Added:** 2026-01-01
 
 ---
 
-**Q7: How should we handle unknown ship classes?**
+## Research Items
 
-- **Context:** Grounding may fail to identify ship class from blueprints
-- **Stakes:** User experience when processing unidentified ships
-- **Options:** (a) Prompt for manual input, (b) Use AI-estimated dimensions, (c) Refuse to proceed
-- **Owner:** TBD
+*These are factual gaps. AI agents should use web search to fill these before proceeding. Information is likely too recent (late 2025) for training data.*
+
+### R1: Gemini 3 Flash capabilities for spatial reasoning
+
+- **What we don't know:** Does Gemini 3 Flash (Dec 2025) have comparable spatial reasoning to Gemini 3 Pro for geometry hint extraction?
+- **Why it matters:** 4x cost difference between models
+- **How to research:** Search for Gemini 3 Flash benchmarks, spatial reasoning comparisons, developer reports
+- **Status:** Not started
 - **Added:** 2026-01-01
 
 ---
 
-## Research Needed
+### R2: Gemini 3 Flash `thinking_level` parameter behavior
 
-### R1: Nano Banana Pro API limits and quotas
+- **What we don't know:** How does the `thinking_level` parameter (minimal/low/medium/high) affect quality and latency for vision tasks?
+- **Why it matters:** Could optimize cost/quality per task type
+- **How to research:** Search for Gemini 3 Flash thinking_level documentation, benchmarks, developer experiences
+- **Status:** Not started
+- **Added:** 2026-01-01
 
-- **Question:** What are the rate limits, image size limits, and daily quotas for Nano Banana Pro via API?
+---
+
+### R3: Nano Banana Pro API limits and quotas
+
+- **What we don't know:** Rate limits, image size limits, daily quotas for Nano Banana Pro via API
 - **Why it matters:** Affects batch processing design and cost estimation
+- **How to research:** Search for Nano Banana Pro API documentation, Vertex AI quotas, developer reports
 - **Status:** Not started
 - **Added:** 2026-01-01
 
 ---
 
-### R2: OBJ format limitations for complex geometry
+### R4: Current best practices for Gemini structured output
 
-- **Question:** Are there practical limits to OBJ file complexity for our target use cases?
-- **Why it matters:** May need to implement LOD or mesh simplification
+- **What we don't know:** Latest patterns for getting reliable JSON from Gemini 3 models (Dec 2025)
+- **Why it matters:** AI components need structured output; patterns may have changed
+- **How to research:** Search for Gemini 3 JSON mode, structured output, response schemas
 - **Status:** Not started
 - **Added:** 2026-01-01
 
 ---
 
-### R3: Browser vs Node.js image processing performance
+### R5: Browser vs Node.js image processing performance (2025 state)
 
-- **Question:** How does Canvas API (browser) compare to sharp (Node.js) for profile extraction?
+- **What we don't know:** Current Canvas API vs sharp performance for profile extraction workloads
 - **Why it matters:** Determines if we need server-side processing or can run entirely in browser
+- **How to research:** Search for sharp vs canvas benchmarks 2025, browser image processing performance
 - **Status:** Not started
 - **Added:** 2026-01-01
 
 ---
 
-## Resolved Questions
+### R6: OBJ format practical limits
 
-*Move answered questions here with findings.*
+- **What we don't know:** Are there practical vertex/face limits for OBJ files in common 3D software (Blender, Three.js, etc.)?
+- **Why it matters:** May need LOD or mesh simplification
+- **How to research:** Search for OBJ file size limits, Three.js mesh performance, Blender import limits
+- **Status:** Not started
+- **Added:** 2026-01-01
 
-### [Template]
+---
 
-**Q: [Original question]**
+## Resolved
+
+*Move items here with findings.*
+
+### Template
+
+**[Q/R][N]: [Original item]**
 
 - **Answer:** [What we learned]
-- **Decision:** [What we decided to do]
-- **Evidence:** [Links to tests, benchmarks, or documentation]
+- **Decision/Finding:** [What we decided or discovered]
+- **Evidence:** [Links, benchmarks, sources]
 - **Resolved:** [Date]
 
 ---
 
 ## How to Use This Document
 
-### Adding a question
+### For Open Questions (need human input)
 
+1. Don't assume an answer
+2. Note the question in your response
+3. Present options to the user
+4. When user decides, move to Resolved with their decision
+
+### For Research Items (need web search)
+
+1. Use web search before implementing anything that touches this area
+2. Document findings in the item
+3. Move to Resolved with sources
+4. Update related docs with new information
+
+### Adding items
+
+**Open Question:**
 ```markdown
-**Q[N]: [Clear, specific question]**
+### Q[N]: [Clear question requiring human judgment]
 
-- **Context:** [Why this question arose]
-- **Stakes:** [What depends on the answer]
-- **To validate:** [How to find the answer]
-- **Owner:** [Who's responsible, or TBD]
+- **Decision needed:** [What choice must be made]
+- **Tradeoffs:** [What's at stake]
+- **Owner:** TBD
 - **Added:** [Date]
 ```
 
-### Resolving a question
+**Research Item:**
+```markdown
+### R[N]: [Topic needing research]
 
-1. Move the question to "Resolved Questions"
-2. Add Answer, Decision, Evidence, and Resolved date
-3. Update any documents that reference this question
-4. Commit with message: `docs: Resolve open question Q[N] - [summary]`
+- **What we don't know:** [Specific factual gap]
+- **Why it matters:** [Impact on implementation]
+- **How to research:** [Search queries, docs to check]
+- **Status:** Not started / In progress / Done
+- **Added:** [Date]
+```
 
 ---
 
