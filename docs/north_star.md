@@ -62,7 +62,7 @@ If something looks wrong, we can trace exactly where.
 |----------|-----------|
 | Hybrid deterministic + AI pipeline | Combines reliability of math with flexibility of AI |
 | Google Gemini for grounding | Real-time ship dimension lookup via Search integration |
-| Google Gemini 3 Pro for refinement | State-of-the-art spatial reasoning + 3D understanding |
+| Nano Banana Pro for refinement | State-of-the-art spatial reasoning + 3D understanding |
 | OBJ as primary export | Universal format, text-based, easy to debug |
 | Human-in-the-loop cropping | Eliminates ambiguity in view separation |
 
