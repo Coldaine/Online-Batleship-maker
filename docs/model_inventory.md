@@ -178,10 +178,7 @@ The project needs AI for these tasks:
 | **Geometry Hints** | 3D inference from 2D views | 3 Pro, 3 Flash |
 | **Visualization** | Generate renders from mesh + blueprints | Nano Banana Pro (required) |
 
-**Open questions:**
-1. Does Gemini 3 Flash's spatial reasoning match 3 Pro for geometry hints?
-2. Is the $0.20 savings per call (2.5 Flash vs 3 Flash) worth the capability tradeoff for high-volume ingestion?
-3. Should we use `thinking_level` parameter on 3 Flash to balance cost/quality per task?
+**Open questions:** See [research/open_questions.md](./research/open_questions.md) for the full list (Q1-Q3).
 
 These decisions should be made based on testing, not assumptions.
 
@@ -205,6 +202,7 @@ These decisions should be made based on testing, not assumptions.
 
 ## Related Documents
 
+- [Open Questions](./research/open_questions.md) — Unresolved model selection decisions
 - [Gemini Capabilities Research](./research/gemini_capabilities.md) — Detailed analysis of 3 Pro and Nano Banana Pro
 - [Architecture Overview](./architecture.md) — System design
 - [North Star](./north_star.md) — Project principles

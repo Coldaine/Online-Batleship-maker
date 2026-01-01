@@ -264,6 +264,8 @@ All 3D geometry uses this coordinate system:
 ## Related Documents
 
 - [North Star](./north_star.md) — Vision and goals
+- [Model Inventory](./model_inventory.md) — AI models and role assignments
+- [Open Questions](./research/open_questions.md) — Unresolved technical decisions
 - [Gemini Capabilities](./research/gemini_capabilities.md) — AI model research
 
 ### Stage Documentation

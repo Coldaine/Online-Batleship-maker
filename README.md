@@ -2,16 +2,29 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# NavalForge 3D
 
-This contains everything you need to run your app locally.
+Transform 2D naval blueprint images into 3D ship models using a hybrid deterministic-AI pipeline.
 
 View your app in AI Studio: https://ai.studio/apps/drive/1OLRvnN-y5UCAxtnEt5hgRM7LpakvtBV6
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/architecture.md) | System design and pipeline stages |
+| [North Star](docs/north_star.md) | Vision and guiding principles |
+| [Model Inventory](docs/model_inventory.md) | AI models used and their roles |
+| [Open Questions](docs/research/open_questions.md) | Unresolved technical decisions |
+
+### For AI Agents
+
+- [CLAUDE.md](CLAUDE.md) — Claude Code instructions
+- [AGENTS.md](AGENTS.md) — General agent guidelines
+
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js
 
 1. Install dependencies:
    `npm install`
