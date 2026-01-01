@@ -101,17 +101,17 @@ function extractProfile(imageData: ImageData, config: ExtractionConfig): Profile
     rawHeights[x] = maxY > minY ? (maxY - minY + 1) : 0;
   }
 
-  // Normalize to 0-1
-  const peak = Math.max(...rawHeights);
-  const normalized = rawHeights.map(h => peak > 0 ? h / peak : 0);
+  // Apply smoothing on raw data first
+  const smoothed = movingAverage(rawHeights, config.smoothing);
 
-  // Apply smoothing
-  const smoothed = movingAverage(normalized, config.smoothing);
+  // Normalize to 0-1 after smoothing
+  const peak = Math.max(...smoothed);
+  const normalized = smoothed.map(h => peak > 0 ? h / peak : 0);
 
   return {
-    curve: smoothed,
+    curve: normalized,
     resolution: width,
-    bounds: computeBounds(smoothed, peak)
+    bounds: computeBounds(normalized, peak)
   };
 }
 

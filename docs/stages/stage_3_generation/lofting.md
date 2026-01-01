@@ -108,7 +108,7 @@ function generateHull(
       const angle = ((r / radialSegments) * 2 - 1) * Math.PI;
 
       const x = (widthAtZ / 2) * Math.cos(angle);
-      const y = heightAtZ * Math.sin(angle);
+      const y = (heightAtZ / 2) * Math.sin(angle);  // Divide by 2: heightAtZ is diameter, not radius
 
       vertices.push([x, y, zPos]);
     }
